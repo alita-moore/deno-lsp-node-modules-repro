@@ -33,6 +33,8 @@ jobs:
           p.write_text(s.replace(anchor, patched))
           print("patched")
           PY
+      - name: Patch 2 — build ConfiguredDepResolutions lazily, per scope, on first use
+        run: python3 .github/workflows/patch2.py
       - name: Build
         working-directory: deno
         run: cargo build --release --bin deno
