@@ -1,0 +1,49 @@
+name: build-collector-fix
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: deno git tag to build
+        default: v2.9.5
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, gitignore-member-globs]
+    steps:
+      - name: Checkout deno
+        run: |
+          git clone --depth 1 --branch "${{ inputs.ref }}" https://github.com/denoland/deno.git deno
+      - name: Toolchain
+        run: |
+          rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' deno/rust-toolchain.toml)" --profile minimal
+          sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev
+      - name: Patch — honour .gitignore while expanding workspace member globs
+        if: matrix.variant == 'gitignore-member-globs'
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path("deno/libs/config/workspace/discovery.rs")
+          s = p.read_text()
+          anchor = ".set_vendor_folder(maybe_vendor_dir.clone())"
+          assert s.count(anchor) == 1, s.count(anchor)
+          s = s.replace(anchor, ".use_gitignore()\n          " + anchor)
+          p.write_text(s)
+          print("patched discovery.rs")
+          PY
+      - name: Show patch
+        run: |
+          cd deno && git diff --stat && git diff
+      - name: Build
+        working-directory: deno
+        run: cargo build --release --bin deno --features lsp-tracing
+      - name: Name the binary
+        run: cp deno/target/release/deno "deno-${{ matrix.variant }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deno-${{ matrix.variant }}
+          path: deno-${{ matrix.variant }}
+          retention-days: 7
