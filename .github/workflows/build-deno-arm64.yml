@@ -103,7 +103,7 @@ jobs:
           PY
       - name: Build
         working-directory: deno
-        run: cargo build --release --bin deno
+        run: cargo build --release --bin deno --features lsp-tracing
       - uses: actions/upload-artifact@v4
         with:
           name: deno-aarch64-patched
