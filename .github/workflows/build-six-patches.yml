@@ -1,0 +1,53 @@
+name: build-six-patches
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: deno git tag to build
+        default: v2.9.5
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [six-patches]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repro
+      - name: Checkout deno
+        run: |
+          git clone --depth 1 --branch "${{ inputs.ref }}" https://github.com/denoland/deno.git deno
+      - name: Toolchain
+        run: |
+          rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' deno/rust-toolchain.toml)" --profile minimal
+          sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev
+      - name: Apply R1 — honour the ignore set in tsconfig root-set collection
+        if: matrix.variant == 'six-patches'
+        run: python3 repro/patches/apply-r1.py deno
+      - name: Apply M5 — prune directories no member glob can match under
+        if: matrix.variant == 'six-patches'
+        run: python3 repro/patches/apply-m5.py deno
+      - name: Apply resolver patches — lazy dep resolutions, export-key gate
+        if: matrix.variant == 'six-patches'
+        run: python3 repro/patches/apply-resolver.py deno
+      - name: Apply defect 5 — deno.json workspace is authoritative
+        if: matrix.variant == 'six-patches'
+        run: python3 repro/patches/apply-authoritative.py deno
+      - name: Apply defect 6 — share the npm resolution snapshot
+        if: matrix.variant == 'six-patches'
+        run: python3 repro/patches/apply-shared-snapshot.py deno
+      - name: Show diff
+        run: cd deno && git diff --stat && git diff
+      - name: Build
+        working-directory: deno
+        run: cargo build --release --bin deno --features lsp-tracing
+      - name: Name the binary
+        run: cp deno/target/release/deno "deno-${{ matrix.variant }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deno-${{ matrix.variant }}
+          path: deno-${{ matrix.variant }}
+          retention-days: 7
